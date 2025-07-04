@@ -45,6 +45,7 @@ interface IASTNode {
     GetType(): EASTNodeType;
     Evaluate(): number;
     Check(): OpResult;
+    ToString(deepth: number): string;
 }
 
 class MathFunction {
@@ -89,6 +90,7 @@ export class Formula {
         this.root = null;
         this.Tokenize(formula);
         let ret = this.ParseExpression();
+        this.root = ret[0];
         if (!ret[0])
             return ret[1];
 
@@ -98,10 +100,9 @@ export class Formula {
                 return check;
 
             if (this.pt != this.tokens.length) {
-                return new OpResult(false, `${this.TokenCtx(this.pt)}意外的符号`, this.pt);
+                return new OpResult(false, `${this.TokenCtx(this.pt)}剩余未解析符号`, this.pt);
             }
         }
-        this.root = ret[0];
         return ret[1];
     }
 
@@ -172,6 +173,14 @@ export class Formula {
         console.log("PrintVars end");
     }
 
+    /** 输出节点树 */
+    PrintNodeTree() {
+        let s = this.root?.ToString(0);
+        console.log("PrintNodeTree begin");
+        console.log(s);
+        console.log("PrintNodeTree end");
+    }
+
 
     private tokens = new Array<string>();
     private pt = 0;
@@ -188,8 +197,6 @@ export class Formula {
     }
 
     public TokenCtx(idx: number): string {
-        idx = Math.max(0, idx);
-        idx = Math.min(this.tokens.length - 1, idx);
         let ctx = "";
         let min = Math.max(idx - 10, 0);
         let max = Math.min(idx + 11, this.tokens.length);
@@ -199,6 +206,15 @@ export class Formula {
                 ctx += `‸‸${t}‸‸`;
             else
                 ctx += t;
+        }
+        if (idx >= this.tokens.length) {
+            for (let i = this.tokens.length; i <= idx; i++) {
+                let t = null;
+                if (i == idx)
+                    ctx += `‸‸${t}‸‸`;
+                else
+                    ctx += t;
+            }
         }
         return ctx;
     }
@@ -251,50 +267,60 @@ export class Formula {
 
     private ParseExpression(): [IASTNode | null, OpResult] {
         let term0 = this.ParseTerm();
+        if (term0[0] == null)
+            return term0;
+
         let op = this.TokenCurrent();
         if (op == null)
             return term0;
 
-        if (op != "+" && op != "-") {
-            if (op != ")" && op != ",")
-                return [null, new OpResult(false, `${this.TokenCtx(this.pt)}意外的符号`, this.pt)];
-            else
-                return term0;
+        let node: IASTNode = term0[0];
+        while (op == "+" || op == "-") {// 运算符左结合处理
+            let opIdx = this.pt;
+            this.TokenToNext();
+            let term = this.ParseTerm();
+            if (term[0] == null)
+                return term;
+
+            node = new OperateNode(node, term[0], op);
+            node.CtxPt = opIdx;
+            op = this.TokenCurrent();
         }
 
-        let opIdx = this.pt;
-        this.TokenToNext();
-        let subExp = this.ParseExpression();
-        if (subExp[0] == null)
-            return subExp;
-
-        let node = new OperateNode(term0[0], subExp[0], op);
-        node.CtxPt = opIdx;
-        return [node, new OpResult(true, "", -1)];
+        let t = this.TokenCurrent();
+        if (t != null && t != ")" && t != ",")
+            return [null, new OpResult(false, `${this.TokenCtx(this.pt)}表达式中意外的符号`, this.pt)];
+        else
+            return [node, new OpResult(true, "", -1)];
     }
 
     private ParseTerm(): [IASTNode | null, OpResult] {
         let factor0 = this.ParseFactor();
+        if (factor0[0] == null)
+            return factor0;
+
         let op = this.TokenCurrent();
         if (op == null)
             return factor0;
 
-        if (op != "*" && op != "/") {
-            if (op != ")" && op != ",")
-                return [null, new OpResult(false, `${this.TokenCtx(this.pt)}意外的符号`, this.pt)];
-            else
-                return factor0;
+        let node: IASTNode = factor0[0];
+        while (op == "*" || op == "/") {// 运算符左结合处理
+            let opIdx = this.pt;
+            this.TokenToNext();
+            let factor = this.ParseFactor();
+            if (factor[0] == null)
+                return factor;
+
+            node = new OperateNode(node, factor[0], op);
+            node.CtxPt = opIdx;
+            op = this.TokenCurrent();
         }
 
-        let opIdx = this.pt;
-        this.TokenToNext();
-        let term1 = this.ParseTerm();
-        if (term1[0] == null)
-            return term1;
-
-        let node = new OperateNode(factor0[0], term1[0], op);
-        node.CtxPt = opIdx;
-        return [node, new OpResult(true, "", -1)];
+        let t = this.TokenCurrent();
+        if (t != null && t != ")" && t != "," && t != "+" && t != "-")
+            return [null, new OpResult(false, `${this.TokenCtx(this.pt)}项中意外的符号`, this.pt)];
+        else
+            return [node, new OpResult(true, "", -1)];
     }
 
     private ParseFactor(): [IASTNode | null, OpResult] {
@@ -302,7 +328,7 @@ export class Formula {
         if (t == null)
             return [null, new OpResult(false, `${this.TokenCtx(this.pt)}意外的结束`, this.pt)];
         if (t == "," || t == "*" || t == "/" || t == ")")
-            return [null, new OpResult(false, `${this.TokenCtx(this.pt)}意外的符号`, this.pt)];
+            return [null, new OpResult(false, `${this.TokenCtx(this.pt)}因子中意外的符号`, this.pt)];
         if (t == "+" || t == "-")
             return [new NumberNode(0), new OpResult(true, "implicit zero", -1)];
 
@@ -322,7 +348,7 @@ export class Formula {
                     let exp = this.ParseExpression();
                     let t2 = this.TokenCurrent();
                     if (t2 != ")")
-                        return [null, new OpResult(false, `${this.TokenCtx(this.pt)}处期望')'`, this.pt)];
+                        return [null, new OpResult(false, `${this.TokenCtx(this.pt)}处期望')'以结束括号`, this.pt)];
                     this.TokenToNext();
                     return exp;
                 } else {
@@ -358,7 +384,7 @@ export class Formula {
             if (arg[0] == null) {
                 if (arg[1].success) {
                     if (this.TokenCurrent() != ")")
-                        return [null, new OpResult(false, `${this.TokenCtx(this.pt)}处期望')'`, this.pt)];
+                        return [null, new OpResult(false, `${this.TokenCtx(this.pt)}处期望')'以结束无参函数`, this.pt)];
                     this.TokenToNext();
                     break;
                 }
@@ -369,7 +395,7 @@ export class Formula {
                 args.push(arg[0]);
                 if (this.TokenCurrent() != ",") {
                     if (this.TokenCurrent() != ")")
-                        return [null, new OpResult(false, `${this.TokenCtx(this.pt)}处期望')'`, this.pt)];
+                        return [null, new OpResult(false, `${this.TokenCtx(this.pt)}处期望')'以结束函数`, this.pt)];
                     this.TokenToNext();
                     break;
                 }
@@ -403,6 +429,15 @@ class NumberNode implements IASTNode {
         else
             return new OpResult(true, "", this.CtxPt);
     }
+
+    ToString(deepth: number): string {
+        let s = "";
+        for (let i = 0; i < deepth; i++) {
+            s += "  ";
+        }
+        s += `${EASTNodeType[this.GetType()]} val=${this.val}`;
+        return s;
+    }
 }
 
 class VarNode implements IASTNode {
@@ -426,6 +461,15 @@ class VarNode implements IASTNode {
             return new OpResult(false, "未知变量", this.CtxPt);
 
         return new OpResult(true, "", -1);
+    }
+
+    ToString(deepth: number): string {
+        let s = "";
+        for (let i = 0; i < deepth; i++) {
+            s += "  ";
+        }
+        s += `${EASTNodeType[this.GetType()]} val=${this.astVar.Value}`;
+        return s;
     }
 }
 
@@ -480,6 +524,16 @@ class OperateNode implements IASTNode {
         return new OpResult(true, "", this.CtxPt);
     }
 
+    ToString(deepth: number): string {
+        let s = "";
+        for (let i = 0; i < deepth; i++) {
+            s += "  ";
+        }
+        s += `${EASTNodeType[this.GetType()]} op=${this.op}`;
+        s += `\n${this.a?.ToString(deepth + 1)}`;
+        s += `\n${this.b?.ToString(deepth + 1)}`;
+        return s;
+    }
 }
 
 class FunctionNode implements IASTNode {
@@ -516,6 +570,18 @@ class FunctionNode implements IASTNode {
         }
         return new OpResult(true, "", this.CtxPt);
     }
+
+    ToString(deepth: number): string {
+        let s = "";
+        for (let i = 0; i < deepth; i++) {
+            s += "  ";
+        }
+        s += `${EASTNodeType[this.GetType()]} name=${this.func.Name}, argsNum=${this.func.ArgsNum}`;
+        for (let i = 0; i < this.func.ArgsNum; i++) {
+            s += `\n${this.args[i].ToString(deepth + 1)}`;
+        }
+        return s;
+    }
 }
 
 
@@ -531,7 +597,7 @@ function TestParse(parser: Formula, input: string): OpResult {
     return ret;
 }
 
-function TestEval(parser: Formula, args: Map<string, number>) {
+function TestEval(parser: Formula, args: Map<string, number>, expect: number) {
     let s = parser.SetVariables(args);
     if (!s.success) {
         console.log("%s", s.msg);
@@ -543,37 +609,40 @@ function TestEval(parser: Formula, args: Map<string, number>) {
         console.log("%s", pair[1].msg);
         return;
     }
-
+    if (expect != pair[0]) {
+        parser.PrintTokens();
+        parser.PrintNodeTree();
+    }
     parser.PrintVars();
-    console.log("执行结果为%f", pair[0]);
+    console.log("执行结果为%f，期望结果为%f", pair[0], expect);
 }
 
 try {
     let test = new Formula();
 
     TestParse(test, "1+3*(5-2)-");
-    TestEval(test, new Map());
+    TestEval(test, new Map(), 0);
 
     TestParse(test, "-100-2+x-(y+z)");
-    TestEval(test, new Map([["x", 1], ["y", 2.8], ["z", 1.2]]));
+    TestEval(test, new Map([["x", 1], ["y", 2.8], ["z", 1.2]]), -100 - 2 + 1 - (2.8 + 1.2));
 
     TestParse(test, "x+3*(y-2)");
-    TestEval(test, new Map([["x", 1], ["y", 2.8]]));
+    TestEval(test, new Map([["x", 1], ["y", 2.8]]), 1 + 3 * (2.8 - 2));
 
     test.RegFunction("ROUND", 1, (args) => {
         return Math.round(args[0]);
     });
     TestParse(test, "ROUND(x+3*(y-2))");
-    TestEval(test, new Map([["x", 10], ["y", 1.5]]));
+    TestEval(test, new Map([["x", 10], ["y", 1.5]]), Math.round(10 + 3 * (1.5 - 2)));
 
     TestParse(test, "MAX(1,2)");
-    TestEval(test, new Map());
+    TestEval(test, new Map(), 2);
 
     TestParse(test, "(1))");
-    TestEval(test, new Map());
+    TestEval(test, new Map(), 0);
 
     TestParse(test, "1)");
-    TestEval(test, new Map());
+    TestEval(test, new Map(), 0);
 
     test.RegFunction("LEFT", 2, (args) => {
         return args[0];
@@ -582,7 +651,7 @@ try {
         return args[1];
     });
     TestParse(test, "RIGHT(LEFT(1,2), RIGHT(4,3))");
-    TestEval(test, new Map());
+    TestEval(test, new Map(), 3);
 } catch (error) {
     console.log(error.msg);
     console.log(error.stack);
