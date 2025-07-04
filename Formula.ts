@@ -610,7 +610,6 @@ function TestEval(parser: Formula, args: Map<string, number>, expect: number) {
         return;
     }
     if (expect != pair[0]) {
-        parser.PrintTokens();
         parser.PrintNodeTree();
     }
     parser.PrintVars();
