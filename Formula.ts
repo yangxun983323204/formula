@@ -2,7 +2,7 @@ enum EASTNodeType {
     None,
     Number,
     Var,
-    Operate,
+    Operator,
     Function,
 }
 
@@ -282,7 +282,7 @@ export class Formula {
             if (term[0] == null)
                 return term;
 
-            node = new OperateNode(node, term[0], op);
+            node = new OperatorNode(node, term[0], op);
             node.CtxPt = opIdx;
             op = this.TokenCurrent();
         }
@@ -311,7 +311,7 @@ export class Formula {
             if (factor[0] == null)
                 return factor;
 
-            node = new OperateNode(node, factor[0], op);
+            node = new OperatorNode(node, factor[0], op);
             node.CtxPt = opIdx;
             op = this.TokenCurrent();
         }
@@ -473,7 +473,7 @@ class VarNode implements IASTNode {
     }
 }
 
-class OperateNode implements IASTNode {
+class OperatorNode implements IASTNode {
     CtxPt: number;
     private a: IASTNode | null;
     private b: IASTNode;
@@ -487,7 +487,7 @@ class OperateNode implements IASTNode {
     }
 
     GetType(): EASTNodeType {
-        return EASTNodeType.Operate;
+        return EASTNodeType.Operator;
     }
 
     Evaluate(): number {
